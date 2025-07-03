@@ -85,30 +85,14 @@ export default function ContractAnalyzer() {
   const [currentStep, setCurrentStep] = useState<'upload' | 'parsing' | 'analyzing' | 'complete'>('upload');
   const { toast } = useToast();
 
-  // Helper function to extract text from HTML
-  const extractTextFromHTML = (html: string): string => {
-    try {
-      const tempDiv = document.createElement('div');
-      tempDiv.innerHTML = html;
-      const textContent = tempDiv.textContent || tempDiv.innerText || '';
-      return textContent
-        .replace(/\s+/g, ' ')
-        .replace(/\n\s*\n/g, '\n')
-        .trim();
-    } catch (error) {
-      console.error('Error extracting text from HTML:', error);
-      return '';
-    }
-  };
-
   const handleFileUpload = async (file: File) => {
     setIsProcessing(true);
     setCurrentStep('parsing');
     setAnalysis(null);
 
     try {
-      // Step 1: Parse the document using Document Parse API
-      console.log('Starting document parse for file:', file.name, 'Size:', file.size, 'Type:', file.type);
+      // Step 1: Extract information using Information Extract API
+      console.log('Starting information extraction for file:', file.name, 'Size:', file.size, 'Type:', file.type);
       
       const formData = new FormData();
       formData.append('document', file);
@@ -118,67 +102,62 @@ export default function ContractAnalyzer() {
         body: formData,
       });
 
-      console.log('Document Parse API Response Status:', parseResponse.status, parseResponse.statusText);
+      console.log('Information Extract API Response Status:', parseResponse.status, parseResponse.statusText);
 
       if (!parseResponse.ok) {
-        throw new Error('Failed to parse document');
+        throw new Error('Failed to extract information from document');
       }
 
       const parseResult = await parseResponse.json();
-      console.log('Document Parse API Result:', parseResult);
+      console.log('Information Extract API Result:', parseResult);
       
-      // Extract text content from parsed result with multiple fallback strategies
+      // Extract text content and structured data
       let documentText = '';
+      let extractedData = null;
 
-      // Strategy 1: Try to extract from elements array
-      if (parseResult.elements && Array.isArray(parseResult.elements)) {
+      // Get the document text
+      if (parseResult.content?.text) {
+        documentText = parseResult.content.text;
+      } else if (parseResult.elements && Array.isArray(parseResult.elements)) {
         documentText = parseResult.elements
           .map((element: any) => element.content?.text || '')
           .join('\n');
-        console.log('Extracted text from elements array, length:', documentText.length);
       }
 
-      // Strategy 2: Try to extract from content.text
-      if (!documentText.trim() && parseResult.content?.text) {
-        documentText = parseResult.content.text;
-        console.log('Extracted text from content.text, length:', documentText.length);
-      }
-
-      // Strategy 3: Try to extract from content.html
-      if (!documentText.trim() && parseResult.content?.html) {
-        documentText = extractTextFromHTML(parseResult.content.html);
-        console.log('Extracted text from content.html, length:', documentText.length);
-      }
-
-      // Strategy 4: Try to extract from top-level html property
-      if (!documentText.trim() && parseResult.html) {
-        documentText = extractTextFromHTML(parseResult.html);
-        console.log('Extracted text from top-level html, length:', documentText.length);
+      // Get the structured extracted data
+      if (parseResult.extractedData) {
+        extractedData = parseResult.extractedData;
       }
 
       console.log('Final extracted document text length:', documentText.length);
-      console.log('First 500 characters of extracted text:', documentText.substring(0, 500));
+      console.log('Extracted structured data:', extractedData);
 
       if (!documentText.trim()) {
-        console.error('No text content found after all extraction strategies. Parse result details:', {
-          parseResult,
-          elementsArray: parseResult.elements,
-          contentObject: parseResult.content,
-          documentTextLength: documentText.length
-        });
         throw new Error('No text content found in document. The document may be empty or in an unsupported format.');
       }
 
       setCurrentStep('analyzing');
 
-      // Step 2: Comprehensive contract analysis using Solar LLM
+      // Step 2: Enhanced analysis using Solar LLM with the extracted data
       const analysisPrompt = `
-You are an expert legal contract analyst with extensive experience in contract law, risk assessment, and business negotiations. Analyze the following contract document comprehensively and provide detailed insights.
+You are an expert legal contract analyst with extensive experience in contract law, risk assessment, and business negotiations. 
 
-COMPLETE CONTRACT DOCUMENT:
+I have extracted the following information from a contract document using AI:
+
+EXTRACTED DOCUMENT TEXT:
 ${documentText}
 
-Please provide a comprehensive analysis in this exact JSON structure. Be thorough and specific in your analysis:
+STRUCTURED DATA EXTRACTED:
+${extractedData ? JSON.stringify(extractedData, null, 2) : 'No structured data available'}
+
+Please provide a comprehensive analysis that enhances and validates the extracted information. Focus on:
+
+1. Risk Assessment - Analyze potential risks and provide specific recommendations
+2. Validation - Verify and enhance the extracted structured data
+3. Legal Analysis - Provide insights on legal implications
+4. Business Impact - Assess business implications and recommendations
+
+Provide your analysis in this exact JSON structure:
 
 {
   "contractType": {
@@ -236,20 +215,10 @@ Please provide a comprehensive analysis in this exact JSON structure. Be thoroug
       "deadlines": ["When deliverables are due"]
     }
   ],
-  "summary": "Comprehensive 3-4 sentence executive summary covering purpose, key terms, and overall assessment"
+  "summary": "Comprehensive 3-4 sentence executive summary covering purpose, key terms, risk assessment, and overall recommendation"
 }
 
-ANALYSIS REQUIREMENTS:
-1. Identify the exact type of contract (lease, employment, service, purchase, etc.)
-2. Extract all party names and their roles clearly
-3. Find all monetary amounts, payment terms, and financial obligations
-4. Identify all important dates, deadlines, and time periods
-5. Assess risks comprehensively across financial, legal, and operational dimensions
-6. Provide specific, actionable recommendations
-7. Flag any unusual, unfavorable, or potentially problematic clauses
-8. Be specific with amounts, dates, and terms - avoid generic responses
-
-Focus on practical business implications and provide insights that would help in decision-making.
+Be thorough, specific, and provide actionable insights. Focus on practical business implications.
 `;
 
       const analysisResponse = await fetch('/api/solar-chat', {
@@ -261,7 +230,7 @@ Focus on practical business implications and provide insights that would help in
           messages: [
             {
               role: 'system',
-              content: 'You are an expert legal contract analyst with 20+ years of experience. Always respond with valid JSON only, no additional text. Be thorough and specific in your analysis.'
+              content: 'You are an expert legal contract analyst with 20+ years of experience. Always respond with valid JSON only, no additional text. Be thorough and specific in your analysis, focusing on risk assessment and actionable recommendations.'
             },
             {
               role: 'user',
@@ -291,65 +260,86 @@ Focus on practical business implications and provide insights that would help in
         parsedAnalysis = JSON.parse(jsonString);
       } catch (e) {
         console.error('JSON parsing failed:', e);
-        // Create a comprehensive fallback analysis
-        parsedAnalysis = {
-          contractType: {
-            category: 'Other',
-            subcategory: 'Requires manual classification',
-            description: 'Contract type requires detailed manual review'
-          },
-          parties: [
-            {
-              name: 'Party identification required',
-              role: 'Other',
-              contact: 'Not specified'
-            }
-          ],
-          financialTerms: {
-            totalValue: 'Requires manual extraction',
-            currency: 'Not specified',
-            paymentSchedule: 'Payment terms require manual review',
-            penalties: 'Penalty terms require manual review',
-            deposits: 'Deposit terms require manual review'
-          },
-          importantDates: {
-            effectiveDate: 'Not clearly specified',
-            expirationDate: 'Not clearly specified',
-            renewalDate: 'Not specified',
-            noticePeriod: 'Not specified',
-            keyMilestones: ['Manual review required for important dates']
-          },
-          riskAssessment: {
-            overallRisk: 'medium',
-            riskScore: 50,
-            riskFactors: [
+        // Use the extracted data as fallback if available
+        if (extractedData) {
+          parsedAnalysis = {
+            ...extractedData,
+            riskAssessment: {
+              overallRisk: 'medium',
+              riskScore: 50,
+              riskFactors: [
+                {
+                  category: 'Legal',
+                  description: 'Document requires comprehensive manual legal review',
+                  severity: 'medium'
+                }
+              ],
+              recommendations: ['Engage legal counsel for detailed contract review', 'Clarify ambiguous terms before signing'],
+              redFlags: ['Analysis requires manual validation']
+            },
+            summary: 'Contract information extracted using AI. Risk assessment and detailed analysis require manual review by qualified legal counsel for comprehensive understanding of all terms and implications.'
+          };
+        } else {
+          // Create a comprehensive fallback analysis
+          parsedAnalysis = {
+            contractType: {
+              category: 'Other',
+              subcategory: 'Requires manual classification',
+              description: 'Contract type requires detailed manual review'
+            },
+            parties: [
               {
-                category: 'Legal',
-                description: 'Document requires comprehensive manual legal review',
-                severity: 'medium'
+                name: 'Party identification required',
+                role: 'Other',
+                contact: 'Not specified'
               }
             ],
-            recommendations: ['Engage legal counsel for detailed contract review', 'Clarify ambiguous terms before signing'],
-            redFlags: ['Complex document structure requires expert analysis']
-          },
-          keyTerms: {
-            terminationClause: 'Termination terms require manual extraction',
-            liabilityLimits: 'Liability terms require manual review',
-            intellectualProperty: 'IP terms require manual review',
-            confidentiality: 'Confidentiality terms require manual review',
-            disputeResolution: 'Dispute resolution terms require manual review',
-            governingLaw: 'Governing law requires manual identification'
-          },
-          obligations: [
-            {
-              party: 'All Parties',
-              obligations: ['Detailed obligations require manual extraction'],
-              deliverables: ['Deliverables require manual identification'],
-              deadlines: ['Deadlines require manual extraction']
-            }
-          ],
-          summary: 'Contract analysis completed with automated extraction. The document contains complex legal language that requires detailed manual review by qualified legal counsel for comprehensive understanding of all terms and implications.'
-        };
+            financialTerms: {
+              totalValue: 'Requires manual extraction',
+              currency: 'Not specified',
+              paymentSchedule: 'Payment terms require manual review',
+              penalties: 'Penalty terms require manual review',
+              deposits: 'Deposit terms require manual review'
+            },
+            importantDates: {
+              effectiveDate: 'Not clearly specified',
+              expirationDate: 'Not clearly specified',
+              renewalDate: 'Not specified',
+              noticePeriod: 'Not specified',
+              keyMilestones: ['Manual review required for important dates']
+            },
+            riskAssessment: {
+              overallRisk: 'medium',
+              riskScore: 50,
+              riskFactors: [
+                {
+                  category: 'Legal',
+                  description: 'Document requires comprehensive manual legal review',
+                  severity: 'medium'
+                }
+              ],
+              recommendations: ['Engage legal counsel for detailed contract review', 'Clarify ambiguous terms before signing'],
+              redFlags: ['Complex document structure requires expert analysis']
+            },
+            keyTerms: {
+              terminationClause: 'Termination terms require manual extraction',
+              liabilityLimits: 'Liability terms require manual review',
+              intellectualProperty: 'IP terms require manual review',
+              confidentiality: 'Confidentiality terms require manual review',
+              disputeResolution: 'Dispute resolution terms require manual review',
+              governingLaw: 'Governing law requires manual identification'
+            },
+            obligations: [
+              {
+                party: 'All Parties',
+                obligations: ['Detailed obligations require manual extraction'],
+                deliverables: ['Deliverables require manual identification'],
+                deadlines: ['Deadlines require manual extraction']
+              }
+            ],
+            summary: 'Contract analysis completed with automated extraction. The document contains complex legal language that requires detailed manual review by qualified legal counsel for comprehensive understanding of all terms and implications.'
+          };
+        }
       }
 
       setAnalysis({
@@ -361,7 +351,7 @@ Focus on practical business implications and provide insights that would help in
       
       toast({
         title: "Contract Analysis Complete!",
-        description: "Your contract has been comprehensively analyzed with AI-powered insights.",
+        description: "Your contract has been comprehensively analyzed using Upstage AI Information Extract and Solar LLM.",
       });
 
     } catch (error) {
@@ -417,7 +407,7 @@ Focus on practical business implications and provide insights that would help in
         </h1>
         <p className="text-xl text-gray-600 max-w-3xl mx-auto">
           Upload any legal contract and get comprehensive AI analysis including contract type identification, 
-          party details, financial terms, risk assessment, and actionable insights powered by Upstage AI.
+          party details, financial terms, risk assessment, and actionable insights powered by Upstage AI Information Extract and Solar LLM.
         </p>
       </div>
 
@@ -426,7 +416,7 @@ Focus on practical business implications and provide insights that would help in
         <div className="flex items-center space-x-4">
           {[
             { step: 'upload', label: 'Upload Contract', icon: FileText },
-            { step: 'parsing', label: 'Parse Document', icon: FileText },
+            { step: 'parsing', label: 'Extract Information', icon: FileText },
             { step: 'analyzing', label: 'AI Analysis', icon: Brain },
             { step: 'complete', label: 'Results', icon: CheckCircle }
           ].map(({ step, label, icon: Icon }, index) => (
@@ -492,11 +482,11 @@ Focus on practical business implications and provide insights that would help in
           <CardContent className="p-8 text-center">
             <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mx-auto mb-4"></div>
             <h3 className="text-xl font-semibold mb-2">
-              {currentStep === 'parsing' ? 'Parsing Document...' : 'Analyzing Contract...'}
+              {currentStep === 'parsing' ? 'Extracting Information...' : 'Analyzing Contract...'}
             </h3>
             <p className="text-gray-600">
               {currentStep === 'parsing' 
-                ? 'Extracting text and structure from your document using Upstage Document Parse API'
+                ? 'Extracting structured information from your document using Upstage Information Extract API'
                 : 'Performing comprehensive AI-powered legal analysis using Upstage Solar LLM with advanced reasoning'
               }
             </p>
