@@ -14,7 +14,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   console.log("Upstage API Key configured:", apiKey ? "✓" : "✗");
 
-  // Document Parse endpoint - now uses Information Extract API
+  // Document Parse endpoint - now uses Document Parse API
   app.post("/api/document-parse", upload.single('document'), async (req, res) => {
     try {
       console.log("Document parse request received");
@@ -30,137 +30,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         type: req.file.mimetype
       });
 
-      // Convert file to base64 using Node.js Buffer
-      const base64Data = req.file.buffer.toString('base64');
+      // Create FormData for the API request
+      const formData = new FormData();
       
-      // Define a comprehensive schema for contract information extraction
-      const contractSchema = {
-        type: "object",
-        properties: {
-          documentText: {
-            type: "string",
-            description: "Complete extracted text content from the document"
-          },
-          contractType: {
-            type: "object",
-            properties: {
-              category: {
-                type: "string",
-                description: "Main contract category (Real Estate, Employment, Service Agreement, Lease, Purchase, Partnership, NDA, License, Other)"
-              },
-              subcategory: {
-                type: "string", 
-                description: "Specific contract subtype"
-              },
-              description: {
-                type: "string",
-                description: "Brief description of what this contract governs"
-              }
-            }
-          },
-          parties: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                name: { type: "string", description: "Full legal name of party" },
-                role: { type: "string", description: "Role in contract (Landlord, Tenant, Buyer, Seller, etc.)" },
-                contact: { type: "string", description: "Contact information if available" }
-              }
-            }
-          },
-          financialTerms: {
-            type: "object",
-            properties: {
-              totalValue: { type: "string", description: "Total contract value with currency" },
-              currency: { type: "string", description: "Currency used" },
-              paymentSchedule: { type: "string", description: "Payment schedule and frequency" },
-              penalties: { type: "string", description: "Late fees, penalties, or liquidated damages" },
-              deposits: { type: "string", description: "Security deposits or advance payments" }
-            }
-          },
-          importantDates: {
-            type: "object",
-            properties: {
-              effectiveDate: { type: "string", description: "Contract start date" },
-              expirationDate: { type: "string", description: "Contract end date" },
-              renewalDate: { type: "string", description: "Renewal or extension dates" },
-              noticePeriod: { type: "string", description: "Required notice period for termination" },
-              keyMilestones: {
-                type: "array",
-                items: { type: "string" },
-                description: "Important deadlines and milestones"
-              }
-            }
-          },
-          keyTerms: {
-            type: "object",
-            properties: {
-              terminationClause: { type: "string", description: "How the contract can be terminated" },
-              liabilityLimits: { type: "string", description: "Liability limitations and caps" },
-              intellectualProperty: { type: "string", description: "IP ownership and usage rights" },
-              confidentiality: { type: "string", description: "Confidentiality terms" },
-              disputeResolution: { type: "string", description: "How disputes will be resolved" },
-              governingLaw: { type: "string", description: "Which jurisdiction's laws apply" }
-            }
-          },
-          obligations: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                party: { type: "string", description: "Party name" },
-                obligations: {
-                  type: "array",
-                  items: { type: "string" },
-                  description: "Specific obligations and responsibilities"
-                },
-                deliverables: {
-                  type: "array", 
-                  items: { type: "string" },
-                  description: "What must be delivered"
-                },
-                deadlines: {
-                  type: "array",
-                  items: { type: "string" },
-                  description: "When deliverables are due"
-                }
-              }
-            }
-          }
-        },
-        required: ["documentText", "contractType", "parties", "financialTerms", "importantDates", "keyTerms", "obligations"]
-      };
+      // Convert buffer to Blob then to File
+      const blob = new Blob([req.file.buffer], { type: req.file.mimetype });
+      const file = new File([blob], req.file.originalname || 'document', {
+        type: req.file.mimetype
+      });
+      
+      formData.append('document', file);
+      formData.append('model', 'document-parse');
 
-      const requestBody = {
-        model: 'information-extract',
-        messages: [{
-          role: 'user',
-          content: [{
-            type: 'image_url',
-            image_url: {
-              url: `data:${req.file.mimetype};base64,${base64Data}`
-            }
-          }]
-        }],
-        response_format: {
-          type: 'json_schema',
-          json_schema: {
-            name: 'contract_extraction_schema',
-            schema: contractSchema
-          }
-        }
-      };
-
-      console.log("Making request to Upstage Information Extract API...");
-
-      const response = await fetch('https://api.upstage.ai/v1/information-extraction/chat/completions', {
+      console.log("Making request to Upstage Document Parse API...");
+      
+      const response = await fetch('https://api.upstage.ai/v1/document-digitization', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
+          'Authorization': `Bearer ${apiKey}`
         },
-        body: JSON.stringify(requestBody)
+        body: formData
       });
 
       console.log("Upstage API response status:", response.status);
@@ -172,36 +61,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const result = await response.json();
-      console.log("Information extract successful");
+      console.log("Document parse successful, elements count:", result.elements?.length || 0);
       
-      // Extract the content from the response
-      const extractedContent = result.choices?.[0]?.message?.content;
-      
-      if (!extractedContent) {
-        throw new Error("No content extracted from document");
-      }
-
-      // Parse the extracted JSON content
-      let parsedContent;
-      try {
-        parsedContent = JSON.parse(extractedContent);
-      } catch (e) {
-        console.error("Failed to parse extracted content as JSON:", e);
-        throw new Error("Failed to parse extracted content");
-      }
-
-      // Return the parsed content in a format compatible with the frontend
-      res.json({
-        elements: [{
-          content: {
-            text: parsedContent.documentText || "No text content extracted"
-          }
-        }],
-        content: {
-          text: parsedContent.documentText || "No text content extracted"
-        },
-        extractedData: parsedContent
-      });
+      res.json(result);
       
     } catch (error) {
       console.error("Document parse error:", error);
