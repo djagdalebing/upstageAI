@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import FileUpload from "./file-upload";
 import { 
@@ -16,6 +16,7 @@ import {
   Users,
   Shield,
   TrendingUp,
+  Download,
   Eye,
   Home,
   Building,
@@ -84,7 +85,6 @@ export default function ContractAnalyzer() {
   const [currentStep, setCurrentStep] = useState<'upload' | 'parsing' | 'analyzing' | 'complete'>('upload');
   const { toast } = useToast();
 
-  // Helper function to extract text from HTML
   const extractTextFromHTML = (html: string): string => {
     try {
       const tempDiv = document.createElement('div');
@@ -106,30 +106,59 @@ export default function ContractAnalyzer() {
     setAnalysis(null);
 
     try {
-      // Step 1: Parse the document using Document Parse API
       console.log('Starting document parse for file:', file.name, 'Size:', file.size, 'Type:', file.type);
       
       const formData = new FormData();
       formData.append('document', file);
 
-      const parseResponse = await fetch('/api/document-parse', {
+      // Directly call Upstage Document Parse API
+      const upstageApiKey = "up_DYMaQNy182Y6aGaRJNQxXnvTcQ5di"; // WARNING: Not secure for production
+      if (!upstageApiKey) {
+        console.error('UPSTAGE_API_KEY is not set');
+        throw new Error('Upstage API key is not configured');
+      }
+
+      const parseResponse = await fetch('https://api.upstage.ai/v1/document-parse', {
         method: 'POST',
+        headers: {
+          Authorization: `Bearer ${upstageApiKey}`,
+        },
         body: formData,
       });
 
-      console.log('Document Parse API Response Status:', parseResponse.status, parseResponse.statusText);
+      console.log('Upstage API Response Status:', parseResponse.status, parseResponse.statusText);
+      const responseText = await parseResponse.text();
+      console.log('Raw API Response:', responseText);
+
+      // Show raw response in toast for debugging
+      toast({
+        title: "API Response Debug",
+        description: `Raw response: ${responseText.substring(0, 200)}${responseText.length > 200 ? '...' : ''}`,
+        variant: "default",
+        duration: 10000,
+      });
 
       if (!parseResponse.ok) {
-        throw new Error('Failed to parse document');
+        console.error('Upstage API Error Response:', responseText);
+        throw new Error(`Upstage API failed with status ${parseResponse.status}: ${responseText.substring(0, 200)}`);
       }
 
-      const parseResult = await parseResponse.json();
-      console.log('Document Parse API Result:', parseResult);
-      
-      // Extract text content from parsed result with multiple fallback strategies
-      let documentText = '';
+      let parseResult;
+      try {
+        parseResult = JSON.parse(responseText);
+        console.log('Upstage API Result:', parseResult);
+      } catch (err) {
+        console.error('Failed to parse JSON from response. Raw response was:', responseText);
+        toast({
+          title: "JSON Parse Error",
+          description: `Failed to parse API response. Raw response: ${responseText.substring(0, 200)}${responseText.length > 200 ? '...' : ''}`,
+          variant: "destructive",
+          duration: 10000,
+        });
+        throw new Error('Invalid JSON in API response');
+      }
 
-      // Strategy 1: Try to extract from elements array
+      let documentText = '';
       if (parseResult.elements && Array.isArray(parseResult.elements)) {
         documentText = parseResult.elements
           .map((element: any) => element.content?.text || '')
@@ -137,19 +166,16 @@ export default function ContractAnalyzer() {
         console.log('Extracted text from elements array, length:', documentText.length);
       }
 
-      // Strategy 2: Try to extract from content.text
       if (!documentText.trim() && parseResult.content?.text) {
         documentText = parseResult.content.text;
         console.log('Extracted text from content.text, length:', documentText.length);
       }
 
-      // Strategy 3: Try to extract from content.html
       if (!documentText.trim() && parseResult.content?.html) {
         documentText = extractTextFromHTML(parseResult.content.html);
         console.log('Extracted text from content.html, length:', documentText.length);
       }
 
-      // Strategy 4: Try to extract from top-level html property
       if (!documentText.trim() && parseResult.html) {
         documentText = extractTextFromHTML(parseResult.html);
         console.log('Extracted text from top-level html, length:', documentText.length);
@@ -170,14 +196,13 @@ export default function ContractAnalyzer() {
 
       setCurrentStep('analyzing');
 
-      // Step 2: Comprehensive contract analysis using Solar LLM
       const analysisPrompt = `
 You are an expert legal contract analyst with extensive experience in contract law, risk assessment, and business negotiations. Analyze the following contract document comprehensively and provide detailed insights.
 
-COMPLETE CONTRACT DOCUMENT:
+// COMPLETE CONTRACT DOCUMENT:
 ${documentText}
 
-Please provide a comprehensive analysis in this exact JSON structure. Be thorough and specific in your analysis:
+// Please provide a comprehensive analysis in this exact JSON structure. Be thorough and specific in your analysis:
 
 {
   "contractType": {
@@ -238,17 +263,17 @@ Please provide a comprehensive analysis in this exact JSON structure. Be thoroug
   "summary": "Comprehensive 3-4 sentence executive summary covering purpose, key terms, and overall assessment"
 }
 
-ANALYSIS REQUIREMENTS:
-1. Identify the exact type of contract (lease, employment, service, purchase, etc.)
-2. Extract all party names and their roles clearly
-3. Find all monetary amounts, payment terms, and financial obligations
-4. Identify all important dates, deadlines, and time periods
-5. Assess risks comprehensively across financial, legal, and operational dimensions
-6. Provide specific, actionable recommendations
-7. Flag any unusual, unfavorable, or potentially problematic clauses
-8. Be specific with amounts, dates, and terms - avoid generic responses
+// ANALYSIS REQUIREMENTS:
+// 1. Identify the exact type of contract (lease, employment, service, purchase, etc.)
+// 2. Extract all party names and their roles clearly
+// 3. Find all monetary amounts, payment terms, and financial obligations
+// 4. Identify all important dates, deadlines, and time periods
+// 5. Assess risks comprehensively across financial, legal, and operational dimensions
+// 6. Provide specific, actionable recommendations
+// 7. Flag any unusual, unfavorable, or potentially problematic clauses
+// 8. Be specific with amounts, dates, and terms - avoid generic responses
 
-Focus on practical business implications and provide insights that would help in decision-making.
+// Focus on practical business implications and provide insights that would help in decision-making.
 `;
 
       const analysisResponse = await fetch('/api/solar-chat', {
@@ -273,7 +298,8 @@ Focus on practical business implications and provide insights that would help in
       });
 
       if (!analysisResponse.ok) {
-        throw new Error('Failed to analyze contract');
+        console.error('Solar Chat API Error Response:', await analysisResponse.text());
+        throw new Error(`Failed to analyze contract: ${analysisResponse.status}`);
       }
 
       const analysisResult = await analysisResponse.json();
@@ -281,16 +307,19 @@ Focus on practical business implications and provide insights that would help in
 
       console.log('Raw analysis response:', analysisContent);
 
-      // Parse the JSON response
       let parsedAnalysis;
       try {
-        // Clean the response in case there's extra text
         const jsonMatch = analysisContent.match(/\{[\s\S]*\}/);
         const jsonString = jsonMatch ? jsonMatch[0] : analysisContent;
         parsedAnalysis = JSON.parse(jsonString);
       } catch (e) {
-        console.error('JSON parsing failed:', e);
-        // Create a comprehensive fallback analysis
+        console.error('JSON parsing failed for analysis response:', e);
+        toast({
+          title: "Analysis JSON Parse Error",
+          description: `Failed to parse analysis response. Raw response: ${analysisContent.substring(0, 200)}${analysisContent.length > 200 ? '...' : ''}`,
+          variant: "destructive",
+          duration: 10000,
+        });
         parsedAnalysis = {
           contractType: {
             category: 'Other',
@@ -396,8 +425,8 @@ Focus on practical business implications and provide insights that would help in
     }
   };
 
-  const getContractIcon = (category: string) => {
-    switch (category.toLowerCase()) {
+  const getContractIcon = (level: string) => {
+    switch (level.toLowerCase()) {
       case 'real estate':
       case 'lease': return <Home className="h-5 w-5" />;
       case 'employment': return <Briefcase className="h-5 w-5" />;
@@ -409,18 +438,16 @@ Focus on practical business implications and provide insights that would help in
 
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-8">
-      {/* Header */}
       <div className="text-center">
         <h1 className="text-4xl font-bold mb-4 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
           AI-Powered Contract Analyzer
         </h1>
         <p className="text-xl text-gray-600 max-w-3xl mx-auto">
           Upload any legal contract and get comprehensive AI analysis including contract type identification, 
-          party details, financial terms, risk assessment, and actionable insights powered by Upstage AI.
+          party details, financial terms, risk assessment, and actionable insights.
         </p>
       </div>
 
-      {/* Process Steps */}
       <div className="flex justify-center">
         <div className="flex items-center space-x-4">
           {[
@@ -450,7 +477,6 @@ Focus on practical business implications and provide insights that would help in
         </div>
       </div>
 
-      {/* Upload Section */}
       {currentStep === 'upload' && (
         <Card className="max-w-2xl mx-auto">
           <CardHeader>
@@ -485,7 +511,6 @@ Focus on practical business implications and provide insights that would help in
         </Card>
       )}
 
-      {/* Processing States */}
       {(currentStep === 'parsing' || currentStep === 'analyzing') && (
         <Card className="max-w-2xl mx-auto">
           <CardContent className="p-8 text-center">
@@ -495,18 +520,16 @@ Focus on practical business implications and provide insights that would help in
             </h3>
             <p className="text-gray-600">
               {currentStep === 'parsing' 
-                ? 'Extracting text and structure from your document using Upstage Document Parse API'
-                : 'Performing comprehensive AI-powered legal analysis using Upstage Solar LLM with advanced reasoning'
+                ? 'Extracting text and structure from your document'
+                : 'Performing comprehensive AI-powered legal analysis'
               }
             </p>
           </CardContent>
         </Card>
       )}
 
-      {/* Analysis Results */}
       {currentStep === 'complete' && analysis && (
         <div className="space-y-6">
-          {/* Contract Overview */}
           <div className="grid lg:grid-cols-3 gap-6">
             <Card>
               <CardHeader>
@@ -567,7 +590,6 @@ Focus on practical business implications and provide insights that would help in
             </Card>
           </div>
 
-          {/* Executive Summary */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center">
@@ -580,7 +602,6 @@ Focus on practical business implications and provide insights that would help in
             </CardContent>
           </Card>
 
-          {/* Detailed Analysis Tabs */}
           <Card>
             <CardHeader>
               <CardTitle>Detailed Analysis</CardTitle>
@@ -662,59 +683,55 @@ Focus on practical business implications and provide insights that would help in
 
                 <TabsContent value="risks" className="space-y-4">
                   <h3 className="text-lg font-semibold">Risk Analysis</h3>
-                  
                   {analysis.riskAssessment.redFlags.length > 0 && (
                     <Alert className="border-red-200 bg-red-50">
                       <AlertTriangle className="h-4 w-4 text-red-600" />
                       <AlertDescription>
-                        <div className="font-semibold text-red-800 mb-2">Critical Red Flags:</div>
+                        <div className="font-medium mb-2">Red Flags</div>
                         <ul className="space-y-1">
                           {analysis.riskAssessment.redFlags.map((flag, index) => (
-                            <li key={index} className="text-red-700">• {flag}</li>
+                            <li key={index} className="flex items-start gap-2">
+                              <div className="w-2 h-2 bg-red-400 rounded-full mt-2 flex-shrink-0"></div>
+                              <span className="text-sm">{flag}</span>
+                            </li>
                           ))}
                         </ul>
                       </AlertDescription>
                     </Alert>
                   )}
-
-                  <div className="grid gap-4">
-                    <div>
-                      <h4 className="font-semibold mb-3 text-red-600">Risk Factors</h4>
-                      <div className="space-y-3">
-                        {analysis.riskAssessment.riskFactors.map((risk, index) => (
-                          <div key={index} className="border rounded-lg p-4">
-                            <div className="flex items-center justify-between mb-2">
-                              <Badge variant="outline">{risk.category}</Badge>
-                              <Badge className={getRiskColor(risk.severity)}>
-                                {risk.severity.toUpperCase()}
-                              </Badge>
-                            </div>
-                            <div className="text-sm">{risk.description}</div>
-                          </div>
-                        ))}
+                  <div className="space-y-4">
+                    {analysis.riskAssessment.riskFactors.map((factor, index) => (
+                      <div key={index} className="border rounded-lg p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          {getRiskIcon(factor.severity)}
+                          <div className="font-medium">{factor.category}</div>
+                          <Badge className={getRiskColor(factor.severity)}>
+                            {factor.severity.toUpperCase()}
+                          </Badge>
+                        </div>
+                        <div className="text-sm text-gray-600">{factor.description}</div>
                       </div>
-                    </div>
-                    
-                    <div>
-                      <h4 className="font-semibold mb-3 text-green-600">Recommendations</h4>
-                      <ul className="space-y-2">
-                        {analysis.riskAssessment.recommendations.map((rec, index) => (
-                          <li key={index} className="flex items-start gap-2">
-                            <CheckCircle className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />
-                            <span className="text-sm">{rec}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
+                    ))}
+                  </div>
+                  <div className="border rounded-lg p-4">
+                    <div className="font-medium mb-2">Recommendations</div>
+                    <ul className="space-y-1">
+                      {analysis.riskAssessment.recommendations.map((recommendation, index) => (
+                        <li key={index} className="flex items-start gap-2">
+                          <div className="w-2 h-2 bg-green-400 rounded-full mt-2 flex-shrink-0"></div>
+                          <span className="text-sm">{recommendation}</span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 </TabsContent>
 
                 <TabsContent value="terms" className="space-y-4">
-                  <h3 className="text-lg font-semibold">Key Legal Terms</h3>
+                  <h3 className="text-lg font-semibold">Key Terms</h3>
                   <div className="grid gap-4">
-                    {Object.entries(analysis.keyTerms).map(([key, value]) => (
-                      <div key={key} className="border rounded-lg p-4">
-                        <div className="font-medium mb-2 capitalize">
+                    {Object.entries(analysis.keyTerms).map(([key, value], index) => (
+                      <div key={index} className="border rounded-lg p-4">
+                        <div className="font-medium capitalize mb-2">
                           {key.replace(/([A-Z])/g, ' $1').trim()}
                         </div>
                         <div className="text-sm text-gray-600">{value}</div>
@@ -724,114 +741,82 @@ Focus on practical business implications and provide insights that would help in
                 </TabsContent>
 
                 <TabsContent value="obligations" className="space-y-4">
-                  <h3 className="text-lg font-semibold">Party Obligations</h3>
-                  <div className="space-y-6">
-                    {analysis.obligations.map((obligation, index) => (
-                      <div key={index} className="border rounded-lg p-4">
-                        <h4 className="font-semibold text-purple-600 mb-4">{obligation.party}</h4>
-                        
-                        <div className="grid md:grid-cols-3 gap-4">
-                          <div>
-                            <div className="font-medium mb-2">Obligations</div>
-                            <ul className="space-y-1">
-                              {obligation.obligations.map((item, itemIndex) => (
-                                <li key={itemIndex} className="flex items-start gap-2">
-                                  <div className="w-2 h-2 bg-purple-400 rounded-full mt-2 flex-shrink-0"></div>
-                                  <span className="text-sm">{item}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                          
-                          <div>
-                            <div className="font-medium mb-2">Deliverables</div>
-                            <ul className="space-y-1">
-                              {obligation.deliverables.map((item, itemIndex) => (
-                                <li key={itemIndex} className="flex items-start gap-2">
-                                  <div className="w-2 h-2 bg-blue-400 rounded-full mt-2 flex-shrink-0"></div>
-                                  <span className="text-sm">{item}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                          
-                          <div>
-                            <div className="font-medium mb-2">Deadlines</div>
-                            <ul className="space-y-1">
-                              {obligation.deadlines.map((item, itemIndex) => (
-                                <li key={itemIndex} className="flex items-start gap-2">
-                                  <div className="w-2 h-2 bg-red-400 rounded-full mt-2 flex-shrink-0"></div>
-                                  <span className="text-sm">{item}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
+                  <h3 className="text-lg font-semibold">Obligations & Deliverables</h3>
+                  {analysis.obligations.map((obligation, index) => (
+                    <div key={index} className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Users className="h-4 w-4 text-blue-600" />
+                        <div className="font-medium">{obligation.party}</div>
+                      </div>
+                      <div className="grid md:grid-cols-3 gap-4">
+                        <div>
+                          <div className="font-medium mb-2">Obligations</div>
+                          <ul className="space-y-1">
+                            {obligation.obligations.map((item, i) => (
+                              <li key={i} className="flex items-start gap-2">
+                                <div className="w-2 h-2 bg-blue-400 rounded-full mt-2 flex-shrink-0"></div>
+                                <span className="text-sm">{item}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div>
+                          <div className="font-medium mb-2">Deliverables</div>
+                          <ul className="space-y-1">
+                            {obligation.deliverables.map((item, i) => (
+                              <li key={i} className="flex items-start gap-2">
+                                <div className="w-2 h-2 bg-green-400 rounded-full mt-2 flex-shrink-0"></div>
+                                <span className="text-sm">{item}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div>
+                          <div className="font-medium mb-2">Deadlines</div>
+                          <ul className="space-y-1">
+                            {obligation.deadlines.map((item, i) => (
+                              <li key={i} className="flex items-start gap-2">
+                                <div className="w-2 h-2 bg-red-400 rounded-full mt-2 flex-shrink-0"></div>
+                                <span className="text-sm">{item}</span>
+                              </li>
+                            ))}
+                          </ul>
                         </div>
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  ))}
                 </TabsContent>
               </Tabs>
             </CardContent>
           </Card>
 
-          {/* Document Text Preview */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center">
-                <Eye className="mr-2 h-6 w-6 text-gray-600" />
-                Extracted Document Text
+                <FileText className="mr-2 h-6 w-6 text-blue-600" />
+                Original Document
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="bg-gray-50 p-4 rounded-lg max-h-96 overflow-y-auto">
-                <pre className="text-sm whitespace-pre-wrap font-mono">
-                  {analysis.documentText.substring(0, 2000)}
-                  {analysis.documentText.length > 2000 && '...\n\n[Text truncated for display]'}
+              <div className="relative">
+                <pre className="text-sm text-gray-600 whitespace-pre-wrap bg-gray-50 p-4 rounded-lg max-h-[500px] overflow-auto">
+                  {analysis.documentText}
                 </pre>
+                <div className="absolute top-2 right-2 flex gap-2">
+                  <Button variant="outline" size="sm">
+                    <Download className="h-4 w-4 mr-2" />
+                    Download
+                  </Button>
+                  <Button variant="outline" size="sm">
+                    <Eye className="h-4 w-4 mr-2" />
+                    View Original
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>
-
-          {/* Action Buttons */}
-          <div className="flex justify-center gap-4">
-            <Button 
-              onClick={() => {
-                setCurrentStep('upload');
-                setAnalysis(null);
-              }}
-              variant="outline"
-            >
-              Analyze Another Contract
-            </Button>
-          </div>
         </div>
       )}
-
-      {/* Business Value Proposition */}
-      <Card className="bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200">
-        <CardContent className="p-8">
-          <h3 className="text-2xl font-bold mb-4 text-center">Transform Your Contract Review Process</h3>
-          <div className="grid md:grid-cols-4 gap-6 text-center">
-            <div>
-              <div className="text-3xl font-bold text-blue-600 mb-2">95%</div>
-              <div className="text-sm text-gray-600">Faster contract review</div>
-            </div>
-            <div>
-              <div className="text-3xl font-bold text-purple-600 mb-2">24/7</div>
-              <div className="text-sm text-gray-600">Automated analysis</div>
-            </div>
-            <div>
-              <div className="text-3xl font-bold text-green-600 mb-2">100%</div>
-              <div className="text-sm text-gray-600">Consistent evaluation</div>
-            </div>
-            <div>
-              <div className="text-3xl font-bold text-orange-600 mb-2">50+</div>
-              <div className="text-sm text-gray-600">Risk factors analyzed</div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }
