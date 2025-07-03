@@ -41,8 +41,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       formData.append('document', file);
       formData.append('model', 'document-parse');
-      // Explicitly request elements and text output formats
-      formData.append('output_formats', JSON.stringify(["elements", "text"]));
+      // Removed the problematic output_formats parameter
 
       console.log("Making request to Upstage API...");
       
