@@ -16,7 +16,6 @@ import {
   Users,
   Shield,
   TrendingUp,
-  Download,
   Eye,
   Home,
   Building,
@@ -578,9 +577,8 @@ Be thorough, specific, and provide actionable insights. Focus on practical busin
             </CardHeader>
             <CardContent>
               <Tabs defaultValue="parties" className="w-full">
-                <TabsList className="grid w-full grid-cols-6">
+                <TabsList className="grid w-full grid-cols-5">
                   <TabsTrigger value="parties">Parties</TabsTrigger>
-                  <TabsTrigger value="financial">Financial</TabsTrigger>
                   <TabsTrigger value="dates">Dates</TabsTrigger>
                   <TabsTrigger value="risks">Risks</TabsTrigger>
                   <TabsTrigger value="terms">Key Terms</TabsTrigger>
@@ -602,30 +600,6 @@ Be thorough, specific, and provide actionable insights. Focus on practical busin
                         )}
                       </div>
                     ))}
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="financial" className="space-y-4">
-                  <h3 className="text-lg font-semibold">Financial Terms</h3>
-                  <div className="grid gap-4">
-                    <div className="grid md:grid-cols-2 gap-4">
-                      <div className="border rounded-lg p-4">
-                        <div className="font-medium mb-2">Payment Schedule</div>
-                        <div className="text-sm text-gray-600">{analysis.financialTerms.paymentSchedule}</div>
-                      </div>
-                      <div className="border rounded-lg p-4">
-                        <div className="font-medium mb-2">Penalties & Fees</div>
-                        <div className="text-sm text-gray-600">{analysis.financialTerms.penalties}</div>
-                      </div>
-                      <div className="border rounded-lg p-4">
-                        <div className="font-medium mb-2">Deposits</div>
-                        <div className="text-sm text-gray-600">{analysis.financialTerms.deposits}</div>
-                      </div>
-                      <div className="border rounded-lg p-4">
-                        <div className="font-medium mb-2">Currency</div>
-                        <div className="text-sm text-gray-600">{analysis.financialTerms.currency}</div>
-                      </div>
-                    </div>
                   </div>
                 </TabsContent>
 
@@ -794,15 +768,9 @@ Be thorough, specific, and provide actionable insights. Focus on practical busin
           {/* Document Text Preview */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <Eye className="mr-2 h-6 w-6 text-gray-600" />
-                  Extracted Document Text
-                </div>
-                <Button variant="outline" size="sm">
-                  <Download className="mr-2 h-4 w-4" />
-                  Export Full Analysis
-                </Button>
+              <CardTitle className="flex items-center">
+                <Eye className="mr-2 h-6 w-6 text-gray-600" />
+                Extracted Document Text
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -825,10 +793,6 @@ Be thorough, specific, and provide actionable insights. Focus on practical busin
               variant="outline"
             >
               Analyze Another Contract
-            </Button>
-            <Button className="bg-blue-600 hover:bg-blue-700">
-              <Download className="mr-2 h-4 w-4" />
-              Download Comprehensive Report
             </Button>
           </div>
         </div>
