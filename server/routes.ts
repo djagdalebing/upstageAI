@@ -39,9 +39,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         type: req.file.mimetype
       });
       
+      // Only append the required parameters according to Upstage API documentation
       formData.append('document', file);
-      formData.append('model', 'document-parse');
-      // Removed the problematic output_formats parameter
+      // Remove the model parameter as it may not be required for document-digitization endpoint
 
       console.log("Making request to Upstage API...");
       
@@ -49,6 +49,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${apiKey}`
+          // Don't set Content-Type header when using FormData - let the browser set it
         },
         body: formData
       });
